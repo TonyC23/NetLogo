@@ -1,0 +1,203 @@
+;; A model to show why cars queue across the train tracks at a railway level crossing
+;; Elements are adapted from Traffic Basic from NetLogo models library
+globals [
+  patches-ahead
+]
+
+
+breed [ eastbound-cars eastbound-car ]
+breed [ westbound-cars westbound-car ]
+
+
+turtles-own [
+  speed
+  speed-limit
+  speed-min
+  turn-right?  ;; true if the turtle wants to turn right
+  compliant?   ;; true if the turtle waits until the RLX is clear before entering it
+]
+
+
+to setup
+  clear-all
+  setup-road
+  setup-cars
+  reset-ticks
+end
+
+to setup-road ;; patch procedure
+
+  ask patches [
+    set plabel-color red
+    ;; main road
+    ifelse (pycor > -2 and pycor < 2)
+      [set pcolor white ]
+      [ set pcolor grey ]
+    ;; southbound side-road
+    if (pycor < -1 and pxcor = 9)
+      [set pcolor white ]
+    ;; northbound side-road
+    if (pycor > 1 and pxcor = -9)
+      [set pcolor white ]
+    ;; railway tracks
+    if (pxcor > -2 and pxcor < 2)
+      [ set pcolor yellow ]
+  ]
+end
+
+to setup-cars
+
+  set-default-shape turtles "car"
+
+  if not any? turtles-on patch -18 1 and not any? turtles-on patch -17 1
+  and not any? turtles-on patch -16 1 and count turtles < max-num-cars [
+    create-eastbound-cars 1 [
+      set color blue
+      set size 1
+      set xcor -18
+      set ycor 1
+      set heading 90
+    ;; set initial speed to be in range 0.1 to 1.0
+    set speed 0.1 + random-float 0.9
+    set speed-limit 1
+    set speed-min 0
+    separate-cars
+
+    ]
+  ]
+
+
+  if not any? turtles-on patch 18 -1 and not any? turtles-on patch 17 -1
+   and not any? turtles-on patch 16 -1 and count turtles < max-num-cars [
+    create-westbound-cars 1 [
+      set color blue
+      set size 1
+      set xcor 18
+      set ycor -1
+      set heading 270
+      set shape "left-car"
+    ;; set initial speed to be in range 0.1 to 1.0
+    set speed 0.1 + random-float 0.9
+    set speed-limit 1
+    set speed-min 0
+    separate-cars
+    ]
+  ]
+
+end
+
+; this procedure is needed so when we click "Setup" we
+; don't end up with any two cars on the same patch
+to separate-cars ;; turtle procedure
+  if any? other turtles-here [
+    fd 1
+    separate-cars
+  ]
+end
+
+to go
+
+  setup-cars
+
+  ask eastbound-cars [
+    avoid-queuing
+    flag-queuing
+
+    ;; set patches-ahead
+    ;; if there is a car right ahead of you, match its speed then slow down
+    let car-ahead one-of turtles-on patch-ahead 1
+    ifelse car-ahead != nobody
+      [ slow-down-car car-ahead ]
+      [ speed-up-car ] ;; otherwise, speed up
+    ;; don't slow down below speed minimum or speed up beyond speed limit
+    if speed < speed-min [ set speed speed-min ]
+    if speed > speed-limit [ set speed speed-limit ]
+    fd speed
+
+    if (random-float 1 < right-turn) [set turn-right? true]
+
+    if (turn-right? = true and pxcor = 9 and pycor = 1) [
+      ifelse (any? turtles-on patch 9 -1 or any? turtles-on patch 10 -1 or any? turtles-on patch 11 -1)
+      [ set speed 0 ]
+      [set heading 180
+      set shape "down-car"
+      speed-up-car] ;; Jase - this seems to occur very infrequently - is the intent that it happens more often?
+    ]
+
+    if not (pxcor = 9 and pycor = 1) [set turn-right? false]
+
+    ;; to emulate the real world, wrapping is switched off and turtles leave the model at its edges
+    if pxcor >= 18 [ die ]
+    if pycor <= -18  [ die ]
+
+  ]
+
+  ask westbound-cars [
+    avoid-queuing
+    flag-queuing
+
+    ;; set patches-ahead
+    ;; if there is a car right ahead of you, match its speed then slow down
+    let car-ahead one-of turtles-on patch-ahead 1
+    ifelse car-ahead != nobody
+      [ slow-down-car car-ahead ]
+      [ speed-up-car ] ;; otherwise, speed up
+    ;; don't slow down below speed minimum or speed up beyond speed limit
+    if speed < speed-min [ set speed speed-min ]
+    if speed > speed-limit [ set speed speed-limit ]
+    fd speed
+
+    ;; decide whether to turn right at side-road based on right-turn slider
+    if (random-float 1 < right-turn) [set turn-right? true]
+    if turn-right? = true and pxcor = -9 and pycor = -1 [
+      ifelse any? turtles-on patch -9 1 or any? turtles-on patch -10 1 or any? turtles-on patch -11 1
+      [ set speed 0 ]
+      [set heading 0
+      set shape "up-car"
+      speed-up-car]
+    ]
+
+     set turn-right? false
+
+     ;; to emulate the real world, wrapping is switched off and turtles leave the model at its edges
+     if pxcor <= -18 [ die ]
+     if pycor >= 18  [ die ]
+  ]
+
+tick
+end
+
+to slow-down-car [ car-ahead ] ;; turtle procedure
+  ;; slow down so you are driving more slowly than the car ahead of you
+  set speed [ speed ] of car-ahead - deceleration
+end
+
+to speed-up-car ;; turtle procedure
+  set speed speed + acceleration
+end
+
+to avoid-queuing
+  if (random-float 1 < compliance) [set compliant? true]
+  if compliant? = true [
+    ifelse ([pcolor] of patch-ahead 1 = yellow and [pcolor] of patch-ahead 1 = yellow
+      and any? turtles-on patch-ahead 3) ;; Jason - not sure what this is doing as the command seems to repeat? I deleted one of
+    ;;the repeated commands and nothing changes. I think it is also creating artificial behaviour in the vehicles - This is the main bit to get right.
+    ;;I think what you want to identify is whether the space immediately after the rail line is empty so that you can slip into it. The judgement would be made in 2 ways. Either it is not empty but you
+    ;;predict that it is going to be empty in the future because you are moving at a certain speed and so are the cars in front of you that you can see, OR you can see that it is empty so you move across.
+    ;; the issue seems to be that people get stuck when their prediction of movement is wrong, no?
+    ;; so, this could be done in a few ways - each car could monitor the spaces after the rail line and determine whether they 'think' the behaviour of cars in those spaces will result,
+    ;;or has already resulted in a space opening up on the other side of the rail line for them to occupy. The accuracy of their perception of the spaces could be flat or could reduce with greater distance
+    ;; or obscurity asymptotically to virtually zero after 5 or so cars given that their line of sight is blocked. i.e., you can see the first car great but the 5th in front of you is basically impossible.
+    ;; this would npt be very hard to implement.
+      [set speed 0]
+      [speed-up-car]
+  ]
+  set compliant? false
+end
+
+to flag-queuing
+  ifelse any? (turtles-on patches with [pcolor = yellow]) with [speed = 0] [
+    ask patch 7 4 [ set plabel "QUEUING" ]
+  ]
+  [ask patch 7 4 [ set plabel "" ]]
+end
